@@ -46,7 +46,7 @@ function shipFactory(type) {
   return { type, size, timesHit, isSunk, hit }
 }
 
-function boardFactory(player) {
+function boardFactory() {
   const squaresShot = []
 
   const shipLocations = {}
@@ -106,10 +106,7 @@ function boardFactory(player) {
 
     for (let shipType in this.shipLocations) {
       if (this.shipLocations[shipType].includes(square)) {
-        const hitShip = player.ships.find(function(ship) {
-          return ship.type == shipType
-        })
-        hitShip.hit()
+        return shipType
       }
     }
   }
@@ -118,6 +115,13 @@ function boardFactory(player) {
 }
 
 function playerFactory(human, ships, board) {
+  function takeHit(shipType) {
+    const hitShip = this.ships.find(function(ship) {
+      return ship.type == shipType
+    })
+    hitShip.hit()
+  }
+
   function listValidShots(board) {
     const fullBoard = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10",
                        "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10",
@@ -148,7 +152,7 @@ function playerFactory(human, ships, board) {
     })
   }
 
-  return { human, ships, board, listValidShots, computerShoot, noShipsLeft }
+  return { human, ships, board, takeHit, listValidShots, computerShoot, noShipsLeft }
 }
 
 exports.shipFactory = shipFactory

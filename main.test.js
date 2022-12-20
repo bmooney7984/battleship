@@ -90,14 +90,10 @@ describe("board methods", () => {
     expect(board.squaresShot).toStrictEqual(["B5"])
   })
 
-  test("receiveShot sends message to hit ship", () => {
-    const mockHit = jest.fn()
-    const mockPlayer = {ships: [{type: "patrol boat", hit: mockHit}]}
-    const board = main.boardFactory(mockPlayer)
+  test("receiveShot returns name of hit ship", () => {
+    const board = main.boardFactory()
     board.shipLocations = {"patrol boat": ["C5", "C6"]}
-
-    board.receiveShot("C6")
-    expect(mockHit).toHaveBeenCalled()
+    expect(board.receiveShot("C6")).toStrictEqual("patrol boat")
   })
 })
 
@@ -173,5 +169,14 @@ describe("player methods", () => {
     const player = main.playerFactory(true, mockShips, {})
 
     expect(player.noShipsLeft()).toBe(false)
+  })
+
+  test("takeHit sends message to hit ship", () => {
+    const mockHit = jest.fn()
+    const mockShips = [{type: "patrol boat", hit: mockHit}]
+    const player = main.playerFactory(true, mockShips, {})
+
+    player.takeHit("patrol boat")
+    expect(mockHit).toHaveBeenCalled()
   })
 })
