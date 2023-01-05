@@ -1,0 +1,39 @@
+#board-container {
+  display: flex;
+  justify-content: space-evenly;
+  margin-bottom: 40px;
+  margin-top: 20px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 28px;
+  margin: 0px 0px 4px 0px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(10, 38px);
+  border: 1px solid black;
+}
+
+.cell {
+  box-sizing: border-box;
+  border: 1px solid black;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #aaa;
+}
+
+.occupied {
+  background-color: hsl(0, 0%, 0%);
+}
+
+#bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
