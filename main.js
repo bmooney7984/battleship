@@ -146,10 +146,13 @@ function boardFactory() {
     })
   }
 
-  return { squaresShot, shipLocations, placeShip, receiveShot, listValidStarts }
+  return { squaresShot, shipLocations, placeShip, receiveShot, listValidStarts, outOfBounds }
 }
 
 function playerFactory(human, ships, board) {
+  opponentModel = {}
+  unresolvedSquares = [] // [{square: "e5", current: "left", up: "closed", down: "closed", left: "open", right: "closed"}]
+
   function takeHit(shipType) {
     const hitShip = this.ships.find(function(ship) {
       return ship.type == shipType
@@ -174,11 +177,307 @@ function playerFactory(human, ships, board) {
     })
   }
 
+  function directionalTarget(board, startSquare, direction) {
+    let target = startSquare
+
+    const validShots = listValidShots(board)
+
+    if (direction == "up") {
+      while (!validShots.includes(target) && !board.outOfBounds([target])) {
+        target = String.fromCharCode(target.charCodeAt(0) - 1) + target.slice(1)
+      }
+    } else if (direction == "down") {
+      while (!validShots.includes(target) && !board.outOfBounds([target])) {
+        target = String.fromCharCode(target.charCodeAt(0) + 1) + target.slice(1)
+      }
+    } else if (direction == "left") {
+      while (!validShots.includes(target) && !board.outOfBounds([target])) {
+        target = target[0] + (Number(target.slice(1)) - 1).toString()
+      }
+    } else if (direction == "right") {
+      while (!validShots.includes(target) && !board.outOfBounds([target])) {
+        target = target[0] + (Number(target.slice(1)) + 1).toString()
+      }
+    }
+
+    return target
+  }
+
+  function directionalPath(startSquare, direction, length) {
+    const path = [startSquare]
+    let nextSquare = startSquare
+
+    if (direction == "up") {
+      for (let i = 2; i <= length; i++) {
+        nextSquare = String.fromCharCode(nextSquare.charCodeAt(0) - 1) + nextSquare.slice(1)
+        path.push(nextSquare)
+      }
+    } else if (direction == "down") {
+      for (let i = 2; i <= length; i++) {
+        nextSquare = String.fromCharCode(nextSquare.charCodeAt(0) + 1) + nextSquare.slice(1)
+        path.push(nextSquare)
+      }
+    } else if (direction == "left") {
+      for (let i = 2; i <= length; i++) {
+        nextSquare = nextSquare[0] + (Number(nextSquare.slice(1)) - 1).toString()
+        path.push(nextSquare)
+      }
+    } else if (direction == "right") {
+      for (let i = 2; i <= length; i++) {
+        nextSquare = nextSquare[0] + (Number(nextSquare.slice(1)) + 1).toString()
+        path.push(nextSquare)
+      }
+    }
+
+    return path
+  }
+
+  function updateStrategy(squareShot, hitShipType, sunk) {
+    if (hitShipType) {  // if hit, add unresolved square to the list, with random current direction and all directions open (in case of sinking, this square will be immediately resolved by the rest of this function)
+      const rand = Math.floor(Math.random() * 4)
+      let direction
+      if (rand == 0) {
+        direction = "up"
+      } else if (rand == 1) {
+        direction = "down"
+      } else if (rand == 2) {
+        direction = "left"
+      } else if (rand == 3) {
+        direction = "right"
+      }
+
+      const square = {square: squareShot, current: direction, up: "open", down: "open", left: "open", right: "open"}
+
+      this.unresolvedSquares.push(square)
+    } else {  // if miss (and working on unresolved squares), close all (unresolved square, direction) pairs that take you to the square shot
+      const squareShotIndex = this.board.squaresShot.findIndex(function(square) {
+        return square == squareShot
+      })
+      const priorSquaresShot = this.board.squaresShot.slice(0, squareShotIndex).concat(this.board.squaresShot.slice(squareShotIndex + 1))
+
+      const mockPriorBoard = {squaresShot: priorSquaresShot, outOfBounds: this.board.outOfBounds}
+
+      const directions = ["up", "down", "left", "right"]
+
+      this.unresolvedSquares.forEach(function(unresolvedSquare) {
+        const usedDirection = directions.find(function(direction) {
+          return directionalTarget(mockPriorBoard, unresolvedSquare.square, direction) == squareShot
+        })
+
+        if (usedDirection) {
+          unresolvedSquare[usedDirection] = "closed"
+        }
+      })
+    }
+
+    if (sunk) {  // if something was sunk, add ship location to model if possible and remove the corresponding unresolved squares (what if it's not possible? then erase everything and go back to random shooting?)
+      // grab four candidate strings of correct length including squareShot
+      const size = shipList.typeToSize(hitShipType)
+
+      const upPath = directionalPath(squareShot, "up", size)
+      const downPath = directionalPath(squareShot, "down", size)
+      const leftPath = directionalPath(squareShot, "left", size)
+      const rightPath = directionalPath(squareShot, "right", size)
+
+      const paths = [upPath, downPath, leftPath, rightPath]
+
+      // filter to include only those with all unresolved squares
+      const unresolvedPaths = paths.filter(function(path) {
+        return path.every(function(square) {
+          return this.unresolvedSquares.some(function(unresolvedSquare) {
+            return square == unresolvedSquare.square
+          })
+        })
+      })
+
+      // if there is only one, update model; otherwise panic
+      if (unresolvedPaths.length == 1) {
+        this.opponentModel[hitShipType] = unresolvedPaths[0]
+        // delete unresolvedSquares objects corresponding to the squares in unresolvedPaths[0]
+        while (true) {
+          const resolvedIndex = this.unresolvedSquares.findIndex(function(unresolvedSquare) {
+            return unresolvedPaths[0].includes(unresolvedSquare.square)
+          })
+
+          if (resolvedIndex >= 0) {
+            this.unresolvedSquares.splice(resolvedIndex, 1)
+          } else {
+            break
+          }
+        }
+      } else {
+        console.log("panic")
+        this.unresolvedSquares = []
+      }
+    }
+  }
+
+  function squaresBetween(startSquare, endSquare) {
+    result = []
+
+    if (startSquare[0] == endSquare[0]) {  // start and end are in the same row
+      let leftColumn
+      let rightColumn
+      if (Number(startSquare.slice(1)) < Number(endSquare.slice(1))) {
+        leftColumn = Number(startSquare.slice(1))
+        rightColumn = Number(endSquare.slice(1))
+      } else if (Number(startSquare.slice(1)) > Number(endSquare.slice(1))) {
+        leftColumn = Number(endSquare.slice(1))
+        rightColumn = Number(startSquare.slice(1))
+      }
+      for (let i = leftColumn + 1; i < rightColumn; i++) {
+        result.push(startSquare[0] + i.toString())
+      }
+    } else if (startSquare.slice(1) == endSquare.slice(1)) {  // start and end are in the same column
+      let topRow
+      let bottomRow
+      if (startSquare.charCodeAt(0) < endSquare.charCodeAt(0)) {
+        topRow = startSquare[0]
+        bottomRow = endSquare[0]
+      } else if (startSquare.charCodeAt(0) > endSquare.charCodeAt(0)) {
+        topRow = endSquare[0]
+        bottomRow = startSquare[0]
+      }
+      for (let i = topRow.charCodeAt(0) + 1; i < bottomRow.charCodeAt(0); i++) {
+        result.push(String.fromCharCode(i) + startSquare.slice(1))
+      }
+    }
+
+    return result
+  }
+
   function computerShoot(board) {
     const validShots = listValidShots(board)
-    const rand = Math.floor(Math.random() * validShots.length)
 
-    return validShots[rand]
+    if (this.unresolvedSquares.length > 0) {
+      // grab first unresolved square
+      const unresolved = this.unresolvedSquares[0]
+      // update directions to reflect valid moves, and close the direction if there are shot squares that aren't unresolved in between the target square and the unresolved square
+      if (unresolved.up == "open") {
+        const target = directionalTarget(board, unresolved.square, "up")
+        if (!validShots.includes(target)) {
+          unresolved.up = "closed"
+        } else {
+          // find squares between current unresolved square and its target
+          const squares = squaresBetween(unresolved.square, target)
+          // if any of those are on shotSquares list and not on unresolved list, close the direction in question for the current unresolved square
+          const shotNotUnresolved = squares.some(function(square) {
+            const unresolved = this.unresolvedSquares.some(function(unresolvedSquare) {
+              return unresolvedSquare.square == square
+            })
+            return board.squaresShot.includes(square) && !unresolved
+          })
+          if (shotNotUnresolved) {
+            unresolved.up = "closed"
+          }
+        }
+      }
+      if (unresolved.down == "open") {
+        const target = directionalTarget(board, unresolved.square, "down")
+        if (!validShots.includes(target)) {
+          unresolved.down = "closed"
+        } else {
+          const squares = squaresBetween(unresolved.square, target)
+          const shotNotUnresolved = squares.some(function(square) {
+            const unresolved = this.unresolvedSquares.some(function(unresolvedSquare) {
+              return unresolvedSquare.square == square
+            })
+            return board.squaresShot.includes(square) && !unresolved
+          })
+          if (shotNotUnresolved) {
+            unresolved.down = "closed"
+          }
+        }
+      }
+      if (unresolved.left == "open") {
+        const target = directionalTarget(board, unresolved.square, "left")
+        if (!validShots.includes(target)) {
+          unresolved.left = "closed"
+        } else {
+          const squares = squaresBetween(unresolved.square, target)
+          const shotNotUnresolved = squares.some(function(square) {
+            const unresolved = this.unresolvedSquares.some(function(unresolvedSquare) {
+              return unresolvedSquare.square == square
+            })
+            return board.squaresShot.includes(square) && !unresolved
+          })
+          if (shotNotUnresolved) {
+            unresolved.left = "closed"
+          }
+        }
+      }
+      if (unresolved.right == "open") {
+        const target = directionalTarget(board, unresolved.square, "right")
+        if (!validShots.includes(target)) {
+          unresolved.right = "closed"
+        } else {
+          const squares = squaresBetween(unresolved.square, target)
+          const shotNotUnresolved = squares.some(function(square) {
+            const unresolved = this.unresolvedSquares.some(function(unresolvedSquare) {
+              return unresolvedSquare.square == square
+            })
+            return board.squaresShot.includes(square) && !unresolved
+          })
+          if (shotNotUnresolved) {
+            unresolved.right = "closed"
+          }
+        }
+      }
+
+      // if current direction is not open, reverse; if that's not open, switch orientation randomly; if that's not open, do remaining one; if that's not open, erase everything and go back to random shooting
+      let currentDirection = unresolved.current
+      if (unresolved[currentDirection] == "closed") {  // if current direction closed, reverse it
+        if (currentDirection == "up") {
+          unresolved.current = "down"
+        } else if (currentDirection == "down") {
+          unresolved.current = "up"
+        } else if (currentDirection == "left") {
+          unresolved.current = "right"
+        } else if (currentDirection == "right") {
+          unresolved.current = "left"
+        }
+      }
+
+      currentDirection = unresolved.current
+      if (unresolved[currentDirection] == "closed") {  // if current direction still closed, rotate it
+        if (currentDirection == "up") {
+          unresolved.current = "left"
+        } else if (currentDirection == "down") {
+          unresolved.current = "right"
+        } else if (currentDirection == "left") {
+          unresolved.current = "down"
+        } else if (currentDirection == "right") {
+          unresolved.current = "up"
+        }
+      }
+
+      currentDirection = unresolved.current
+      if (unresolved[currentDirection] == "closed") {  // if current direction still closed, reverse it again
+        if (currentDirection == "up") {
+          unresolved.current = "down"
+        } else if (currentDirection == "down") {
+          unresolved.current = "up"
+        } else if (currentDirection == "left") {
+          unresolved.current = "right"
+        } else if (currentDirection == "right") {
+          unresolved.current = "left"
+        }
+      }
+
+      currentDirection = unresolved.current
+      if (unresolved[currentDirection] == "closed") {  // if current direction still closed, just forget the unresolved squares and go back to random shooting
+        console.log("panic")
+        this.unresolvedSquares = []
+      }
+    }
+
+    if (unresolvedSquares.length > 0) {  // take shot in the direction specified by unresolved squares object (shoot nearest available square in that direction)
+      const unresolved = this.unresolvedSquares[0]
+      return directionalTarget(board, unresolved.square, unresolved.current)
+    } else {  // if no unresolvedSquares, shoot randomly
+      const rand = Math.floor(Math.random() * validShots.length)
+      return validShots[rand]
+    }
   }
 
   function noShipsLeft() {
@@ -187,7 +486,7 @@ function playerFactory(human, ships, board) {
     })
   }
 
-  return { human, ships, board, takeHit, listValidShots, computerShoot, noShipsLeft }
+  return { human, ships, board, opponentModel, unresolvedSquares, takeHit, listValidShots, computerShoot, noShipsLeft, updateStrategy }
 }
 
 const gui = function() {
@@ -465,6 +764,8 @@ async function makeShots() {
 
     const hitShipType = opponent.board.receiveShot(shot)
 
+    let sunk
+
     if (hitShipType) {
       shotCell.setAttribute("style", "background-color: hsl(0, 100%, 40%)")
 
@@ -476,13 +777,20 @@ async function makeShots() {
 
       if (hitShip.isSunk()) {
         lastShotMessage.textContent = `Hit! The ${hitShipType} was sunk!`
+        sunk = true
       } else {
         lastShotMessage.textContent = "Hit!"
+        sunk = false
       }
     } else {
       shotCell.setAttribute("style", "background-color: hsl(240, 100%, 40%)")
 
       lastShotMessage.textContent = "Miss!"
+      sunk = false
+    }
+
+    if (!currentPlayer.human) {
+      currentPlayer.updateStrategy(shot, hitShipType, sunk)
     }
 
     bottom.append(lastShotMessage)
