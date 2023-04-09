@@ -249,25 +249,6 @@ function playerFactory(human, ships, board) {
       const square = {square: squareShot, current: direction, up: "open", down: "open", left: "open", right: "open"}
 
       this.unresolvedSquares.push(square)
-    } else {  // if miss (and working on unresolved squares), close all (unresolved square, direction) pairs that take you to the square shot
-      const squareShotIndex = this.board.squaresShot.findIndex(function(square) {
-        return square == squareShot
-      })
-      const priorSquaresShot = this.board.squaresShot.slice(0, squareShotIndex).concat(this.board.squaresShot.slice(squareShotIndex + 1))
-
-      const mockPriorBoard = {squaresShot: priorSquaresShot, outOfBounds: this.board.outOfBounds}
-
-      const directions = ["up", "down", "left", "right"]
-
-      this.unresolvedSquares.forEach(function(unresolvedSquare) {
-        const usedDirection = directions.find(function(direction) {
-          return directionalTarget(mockPriorBoard, unresolvedSquare.square, direction) == squareShot
-        })
-
-        if (usedDirection) {
-          unresolvedSquare[usedDirection] = "closed"
-        }
-      })
     }
 
     if (sunk) {  // if something was sunk, add ship location to model if possible and remove the corresponding unresolved squares (what if it's not possible? then erase everything and go back to random shooting?)
